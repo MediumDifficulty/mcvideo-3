@@ -1,0 +1,8 @@
+/target
+/extractor
+
+/.vscode
+
+*.mp4
+*.svg
+*.lock
