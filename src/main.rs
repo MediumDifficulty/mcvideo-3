@@ -101,7 +101,7 @@ fn init_clients(
 
         let mut brand = Vec::new();
         "MCVideo".encode(&mut brand).unwrap();
-        client.send_custom_payload(Ident::new("minecraft:brand").unwrap(), &brand);
+        client.send_custom_payload( Ident::new("minecraft:brand").unwrap().as_str_ident(), &brand);
 
         commands.entity(entity).insert(PlayerBundle {
             location: Location(instances.single()),
