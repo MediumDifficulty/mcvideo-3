@@ -11,6 +11,8 @@ use valence::{prelude::*, entity::{player::PlayerBundle, glow_item_frame::GlowIt
 extern crate ffmpeg_next as ffmpeg;
 
 fn main() {
+    env::set_var("RUST_BACKTRACE", "1");
+
     let args: Vec<String> = env::args().collect();
 
     ffmpeg::init().expect("Could not initialise Ffmpeg runtime");
@@ -22,7 +24,7 @@ fn main() {
     App::new()
         .add_plugin(ServerPlugin::new(())
             .with_max_connections(10)
-            .with_tick_rate(20))
+            .with_tick_rate(30))
         .add_startup_system(setup)
         .add_system(init_clients)
         .add_system(default_event_handler.in_schedule(EventLoopSchedule))
@@ -118,7 +120,7 @@ fn update_screen(
     server: Res<Server>,
     start_time: Res<StartTime>
 ) {
-    if clients.is_empty() { return; }
+    // if clients.is_empty() { return; }
 
     let start = Instant::now();
     if let Some(frame) = processor.next() {
@@ -140,6 +142,7 @@ fn update_screen(
             }
         }
     } else {
+        println!("Video finished playing");
         process::exit(0);
     }
 

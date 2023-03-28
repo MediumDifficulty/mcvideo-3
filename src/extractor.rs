@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use ffmpeg::{format::{context::Input, Pixel}, media::Type, software::scaling, frame::Video, decoder};
 use valence::util::{vec3, Vec3};
 
@@ -6,6 +8,9 @@ pub struct FrameExtractor {
     decoder: decoder::Video,
     scaler: scaling::Context,
     video_stream_index: usize,
+    framerate: f32,
+    index: usize,
+    play_time: Instant,
 }
 
 impl FrameExtractor {
@@ -25,9 +30,10 @@ impl FrameExtractor {
             height,
             scaling::Flags::BILINEAR
         ).unwrap();
+        let framerate = video.avg_frame_rate();
+        let framerate = framerate.0 as f32 / framerate.1 as f32;
 
-
-        Self { input, decoder, scaler, video_stream_index }
+        Self { input, decoder, scaler, video_stream_index, framerate, index: 0, play_time: Instant::now() }
     }
 }
 
@@ -36,6 +42,9 @@ impl Iterator for FrameExtractor {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut decoded = Video::empty();
+
+        let frame_time = self.index as f32 * (1. / self.framerate);
+        self.index += 1;
 
         if self.decoder.receive_frame(&mut decoded).is_ok() {
             let mut rgb_frame = Video::empty();

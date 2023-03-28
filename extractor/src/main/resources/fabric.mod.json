@@ -1,0 +1,26 @@
+{
+	"schemaVersion": 1,
+	"id": "extractor",
+	"version": "${version}",
+	"name": "extractor",
+	"description": "",
+	"authors": [],
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"yes.mediumdifficulty.extractor.client.ExtractorClient"
+		],
+		"main": [
+			"yes.mediumdifficulty.extractor.Extractor"
+		]
+	},
+	"mixins": [
+		"extractor.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.14.18",
+		"fabric": "*",
+		"minecraft": "1.19.4"
+	}
+}
