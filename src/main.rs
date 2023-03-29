@@ -93,8 +93,10 @@ fn init_clients(
     mut commands: Commands,
     mut start_time: ResMut<StartTime>,
     server: Res<Server>,
+    mut processor: NonSendMut<FrameProcessor>,
 ) {
     for (entity, uuid, mut client, mut game_mode) in &mut clients {
+        processor.start();
         *start_time = StartTime { time: Instant::now(), tick: server.current_tick() } ;
 
         *game_mode = GameMode::Creative;
@@ -120,7 +122,7 @@ fn update_screen(
     server: Res<Server>,
     start_time: Res<StartTime>
 ) {
-    // if clients.is_empty() { return; }
+    if clients.is_empty() { return; }
 
     let start = Instant::now();
     if let Some(frame) = processor.next() {
@@ -146,5 +148,5 @@ fn update_screen(
         process::exit(0);
     }
 
-    println!("update: {}ms\tct: {}\ttps: {}\tfps: {}", start.elapsed().as_millis(), server.current_tick(), server.tps(), (server.current_tick() - start_time.tick) as f32 / start_time.time.elapsed().as_secs_f32());
+    // println!("update: {}ms\tct: {}\ttps: {}\tfps: {}", start.elapsed().as_millis(), server.current_tick(), server.tps(), (server.current_tick() - start_time.tick) as f32 / start_time.time.elapsed().as_secs_f32());
 }

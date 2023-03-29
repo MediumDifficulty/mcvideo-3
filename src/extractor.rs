@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Instant, Duration};
 
 use ffmpeg::{format::{context::Input, Pixel}, media::Type, software::scaling, frame::Video, decoder};
 use valence::util::{vec3, Vec3};
@@ -10,7 +10,6 @@ pub struct FrameExtractor {
     video_stream_index: usize,
     framerate: f32,
     index: usize,
-    play_time: Instant,
 }
 
 impl FrameExtractor {
@@ -33,24 +32,24 @@ impl FrameExtractor {
         let framerate = video.avg_frame_rate();
         let framerate = framerate.0 as f32 / framerate.1 as f32;
 
-        Self { input, decoder, scaler, video_stream_index, framerate, index: 0, play_time: Instant::now() }
+        Self { input, decoder, scaler, video_stream_index, framerate, index: 0 }
     }
 }
 
 impl Iterator for FrameExtractor {
-    type Item = Vec<Vec3>;
+    type Item = (Vec<Vec3>, Duration);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut decoded = Video::empty();
 
-        let frame_time = self.index as f32 * (1. / self.framerate);
+        let frame_time = Duration::from_secs_f32(self.index as f32 * (1. / self.framerate));
         self.index += 1;
 
         if self.decoder.receive_frame(&mut decoded).is_ok() {
             let mut rgb_frame = Video::empty();
             self.scaler.run(&decoded, &mut rgb_frame).unwrap();
 
-            return Some(bytes_f32(rgb_frame.data(0)));
+            return Some((bytes_f32(rgb_frame.data(0)), frame_time));
         }
 
         loop {
@@ -66,7 +65,7 @@ impl Iterator for FrameExtractor {
                     let mut rgb_frame = Video::empty();
                     self.scaler.run(&decoded, &mut rgb_frame).unwrap();
 
-                    return Some(bytes_f32(rgb_frame.data(0)));
+                    return Some((bytes_f32(rgb_frame.data(0)), frame_time));
                 }
             }
         }

@@ -1,8 +1,10 @@
 // use std::time::Instant;
 
+use std::time::{Instant, Duration};
+
 use ffmpeg::format::context::Input;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use valence::util::uvec2;
+use valence::util::{uvec2, Vec3};
 
 use crate::{extractor::FrameExtractor, map_colours::MAP_COLOURS};
 
@@ -12,13 +14,18 @@ pub struct FrameProcessor {
     extractor: FrameExtractor,
     pub width: u32,
     pub height: u32,
+    start_time: Instant,
 }
 
 impl FrameProcessor {
     pub fn new(input: Input, width: u32, height: u32) -> Self {
         let extractor = FrameExtractor::new(input, width, height);
 
-        Self { extractor, width, height }
+        Self { extractor, width, height, start_time: Instant::now() }
+    }
+
+    pub fn start(&mut self) {
+        self.start_time = Instant::now();
     }
 }
 
@@ -28,7 +35,7 @@ impl Iterator for FrameProcessor {
     fn next(&mut self) -> Option<Self::Item> {
         // Find the closest map colour
         // let start_a = Instant::now();
-        let map_colours = self.extractor.next()
+        let map_colours = get_next_frame_for_time(&mut self.extractor, self.start_time.elapsed())
             .map(|raw_frame| raw_frame.par_iter()
                 .map(|pixel| MAP_COLOURS.iter().enumerate()
                     .filter(|e| e.0 > 3)
@@ -54,8 +61,6 @@ impl Iterator for FrameProcessor {
             let block_coords = coords / 128;
             let map_coords = coords % 128;
 
-            // println!("Block: {} Map: {}", block_coords.y * width_maps + block_coords.x, map_coords.y * self.width + map_coords.x);
-
             maps[(block_coords.y * width_maps + block_coords.x) as usize][(map_coords.y * 128 + map_coords.x) as usize] = colour;
         }
 
@@ -63,4 +68,14 @@ impl Iterator for FrameProcessor {
 
         Some(maps)
     }
+}
+
+fn get_next_frame_for_time(extractor: &mut FrameExtractor, elapsed_time: Duration) -> Option<Vec<Vec3>> {
+    let (mut frame, mut frame_time) = extractor.next()?;
+
+    while frame_time < elapsed_time {
+        (frame, frame_time) = extractor.next()?;
+    }
+
+    Some(frame)
 }
