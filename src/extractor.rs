@@ -1,4 +1,4 @@
-use std::time::{Instant, Duration};
+use std::{time::{Instant, Duration}, process::Command, fs};
 
 use ffmpeg::{format::{context::Input, Pixel}, media::Type, software::scaling, frame::Video, decoder};
 use valence::util::{vec3, Vec3};
@@ -16,7 +16,7 @@ impl FrameExtractor {
     pub fn new(input: Input, width: u32, height: u32) -> Self {
         let video = input.streams().best(Type::Video).unwrap();
         let video_stream_index = video.index();
-    
+        
         let context_decoder = ffmpeg::codec::context::Context::from_parameters(video.parameters()).unwrap();
         let decoder = context_decoder.decoder().video().unwrap();
     
@@ -31,7 +31,7 @@ impl FrameExtractor {
         ).unwrap();
         let framerate = video.avg_frame_rate();
         let framerate = framerate.0 as f32 / framerate.1 as f32;
-
+        
         Self { input, decoder, scaler, video_stream_index, framerate, index: 0 }
     }
 }
@@ -76,4 +76,27 @@ fn bytes_f32(bytes: &[u8]) -> Vec<Vec3> {
     bytes.chunks(3)
         .map(|b| vec3(b[0] as f32, b[1] as f32, b[2] as f32) / 255.)
         .collect::<Vec<Vec3>>()
+}
+
+pub fn extract_audio(filename: &str) -> Vec<u8> {
+    // Extract audio to ogg
+    fs::create_dir_all("temp").unwrap();
+
+    let mut command = Command::new("ffmpeg");
+
+    command
+        .arg("-i")
+        .arg(filename)
+        .arg("-vn")
+        .arg("-acodec")
+        .arg("libvorbis")
+        .arg("-y")
+        .arg("temp/audio.ogg");
+
+    command.output().unwrap();
+
+    let audio = fs::read("temp/audio.ogg");
+    fs::remove_dir_all("temp").unwrap();
+
+    audio.unwrap()
 }

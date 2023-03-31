@@ -12,6 +12,14 @@ debug=true
 ffmpeg-next = "6.0.0"
 valence = { git = "https://github.com/valence-rs/valence" }
 bevy_ecs = "0.10.0"
-byteorder = "1.4.3"
 num-integer = "0.1.45"
 rayon = "1.7.0"
+zip = "0.6.4"
+sha-1 = "0.10.1"
+hex = "0.4.3"
+
+hyper = { version = "0.14.25", features=["full"] }
+tokio = "1.27.0"
+
+env_logger = "0.10.0"
+log = "0.4.17"

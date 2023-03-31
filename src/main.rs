@@ -1,21 +1,43 @@
 mod extractor;
 mod processor;
 mod map_colours;
+mod nearest_colour;
+mod resource_pack;
+mod http_server;
 
 use std::{env, time::Instant, process};
 
 use ffmpeg::format;
+use log::info;
 use processor::FrameProcessor;
-use valence::{prelude::*, entity::{player::PlayerBundle, glow_item_frame::GlowItemFrameBundle, item_frame, ObjectData}, protocol::{Encode, packet::s2c::play::{MapUpdateS2c, map_update::Data}, var_int::VarInt}, packet::WritePacket};
+use sha1::{Sha1, Digest};
+use tokio::runtime::Runtime;
+use valence::{prelude::{*, event::ResourcePackStatusChange}, entity::{player::PlayerBundle, glow_item_frame::GlowItemFrameBundle, item_frame, ObjectData}, protocol::{Encode, packet::s2c::play::{MapUpdateS2c, map_update::Data}, var_int::VarInt}, packet::WritePacket};
+use valence::protocol::sound::Sound;
 
 extern crate ffmpeg_next as ffmpeg;
 
 fn main() {
-    env::set_var("RUST_BACKTRACE", "1");
+    env_logger::init();
+    info!("Staring...");
 
     let args: Vec<String> = env::args().collect();
 
     ffmpeg::init().expect("Could not initialise Ffmpeg runtime");
+    info!("Initialised ffmpeg");
+
+    let pack = resource_pack::create(&extractor::extract_audio(args.get(1).unwrap())).unwrap();
+    info!("Created resource pack");
+
+    let mut hasher = Sha1::new();
+    hasher.update(pack.as_slice());
+    let resource_pack_hash = hasher.finalize().to_vec();
+
+    // Spawn http server
+    let rt = Runtime::new().unwrap();
+    rt.spawn(async move {
+        http_server::serve(pack.clone()).await;  
+    });
 
     let input = format::input(&args.get(1).expect("Cannot open video file")).expect("Unable to load video");
     let width = args[2].parse::<u32>().unwrap();
@@ -27,12 +49,16 @@ fn main() {
             .with_tick_rate(30))
         .add_startup_system(setup)
         .add_system(init_clients)
-        .add_system(default_event_handler.in_schedule(EventLoopSchedule))
+        .add_systems((
+            default_event_handler,
+            on_resource_pack_status
+        ).in_schedule(EventLoopSchedule))
         .add_systems(PlayerList::default_systems())
         .add_system(despawn_disconnected_clients)
         .insert_non_send_resource(FrameProcessor::new(input, width, height))
         .add_system(update_screen)
         .insert_resource(StartTime { time: Instant::now(), tick: 0 })
+        .insert_resource(ResourcePackHash(hex::encode(resource_pack_hash)))
         .run();
 }
 
@@ -41,6 +67,9 @@ struct StartTime {
     time: Instant,
     tick: i64,
 }
+
+#[derive(Resource)]
+struct ResourcePackHash(String);
 
 fn setup(mut commands: Commands, server: Res<Server>, processor: NonSend<FrameProcessor>) {
     let mut instance = server.new_instance(DimensionId::default());
@@ -85,23 +114,27 @@ fn setup(mut commands: Commands, server: Res<Server>, processor: NonSend<FramePr
             });
         }
     }
+
+    info!("Initialised Minecraft server");
 }
 
 fn init_clients(
-    mut clients: Query<(Entity, &UniqueId, &mut Client, &mut GameMode), Added<Client>>,
+    mut clients: Query<(Entity, &UniqueId, &mut Client, &mut GameMode, &Ip), Added<Client>>,
     instances: Query<Entity, With<Instance>>,
     mut commands: Commands,
     mut start_time: ResMut<StartTime>,
     server: Res<Server>,
     mut processor: NonSendMut<FrameProcessor>,
+    rph: Res<ResourcePackHash>,
 ) {
-    for (entity, uuid, mut client, mut game_mode) in &mut clients {
-        processor.start();
-        *start_time = StartTime { time: Instant::now(), tick: server.current_tick() } ;
-
+    for (entity, uuid, mut client, mut game_mode, ip) in &mut clients {
         *game_mode = GameMode::Creative;
 
+        info!("{}", ip.0.to_string());
+
         client.send_message("Welcome to MCVideo V3!");
+
+        client.set_resource_pack(&format!("http://{}:25566", ip.0), &rph.0, true, None);
 
         let mut brand = Vec::new();
         "MCVideo".encode(&mut brand).unwrap();
@@ -116,6 +149,24 @@ fn init_clients(
     }
 }
 
+fn on_resource_pack_status(
+    mut clients: Query<&mut Client>,
+    mut events: EventReader<ResourcePackStatusChange>,
+    mut start_time: ResMut<StartTime>,
+    mut processor: NonSendMut<FrameProcessor>,
+    server: Res<Server>,
+) {
+    for event in events.iter() {
+        let Ok(mut client) = clients.get(event.client) else { continue; };
+
+        if let event::ResourcePackStatus::Loaded = event.status {
+            processor.start();
+            // client.play_sound(Sound::, valence::protocol::types::SoundCategory::Master, (0., 64., 0.), 100., 1.);
+            *start_time = StartTime { time: Instant::now(), tick: server.current_tick() };
+        }
+    }
+}
+
 fn update_screen(
     mut processor: NonSendMut<FrameProcessor>,
     mut clients: Query<&mut Client>,
@@ -126,7 +177,7 @@ fn update_screen(
 
     let start = Instant::now();
     if let Some(frame) = processor.next() {
-        println!("Processing took: {}ms", start.elapsed().as_millis());
+        // info!("Processing took: {}ms", start.elapsed().as_millis());
         for mut client in clients.iter_mut() {
             for (i, map_data) in frame.iter().enumerate() {
                 client.write_packet(&MapUpdateS2c {
@@ -144,9 +195,9 @@ fn update_screen(
             }
         }
     } else {
-        println!("Video finished playing");
-        process::exit(0);
+        info!("Video finished playing");
+        // process::exit(0);
     }
 
-    // println!("update: {}ms\tct: {}\ttps: {}\tfps: {}", start.elapsed().as_millis(), server.current_tick(), server.tps(), (server.current_tick() - start_time.tick) as f32 / start_time.time.elapsed().as_secs_f32());
+    // info!("update: {}ms\tct: {}\ttps: {}\tfps: {}", start.elapsed().as_millis(), server.current_tick(), server.tps(), (server.current_tick() - start_time.tick) as f32 / start_time.time.elapsed().as_secs_f32());
 }

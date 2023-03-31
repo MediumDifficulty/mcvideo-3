@@ -45,7 +45,7 @@ impl Iterator for FrameProcessor {
                 )
                 .collect::<Vec<u8>>()
             )?;
-        // println!("finding closest colour took {}ms", start_a.elapsed().as_millis());
+        // info!("finding closest colour took {}ms", start_a.elapsed().as_millis());
 
 
         // let start_b = Instant::now();
@@ -64,7 +64,7 @@ impl Iterator for FrameProcessor {
             maps[(block_coords.y * width_maps + block_coords.x) as usize][(map_coords.y * 128 + map_coords.x) as usize] = colour;
         }
 
-        // println!("Plotting onto maps took {}ms", start_b.elapsed().as_millis());
+        // info!("Plotting onto maps took {}ms", start_b.elapsed().as_millis());
 
         Some(maps)
     }
