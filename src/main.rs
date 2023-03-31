@@ -12,8 +12,7 @@ use log::info;
 use processor::FrameProcessor;
 use sha1::{Sha1, Digest};
 use tokio::runtime::Runtime;
-use valence::{prelude::{*, event::ResourcePackStatusChange}, entity::{player::PlayerBundle, glow_item_frame::GlowItemFrameBundle, item_frame, ObjectData}, protocol::{Encode, packet::s2c::play::{MapUpdateS2c, map_update::Data}, var_int::VarInt}, packet::WritePacket};
-use valence::protocol::sound::Sound;
+use valence::{prelude::{*, event::ResourcePackStatusChange}, entity::{player::PlayerBundle, glow_item_frame::GlowItemFrameBundle, item_frame, ObjectData}, protocol::{Encode, packet::s2c::play::{MapUpdateS2c, map_update::Data, PlaySoundS2c, play_sound::SoundId}, var_int::VarInt, types::SoundCategory}, packet::WritePacket};
 
 extern crate ffmpeg_next as ffmpeg;
 
@@ -42,6 +41,7 @@ fn main() {
     let input = format::input(&args.get(1).expect("Cannot open video file")).expect("Unable to load video");
     let width = args[2].parse::<u32>().unwrap();
     let height = args[3].parse::<u32>().unwrap();
+    let local_url = args.get(4).unwrap();
 
     App::new()
         .add_plugin(ServerPlugin::new(())
@@ -57,19 +57,16 @@ fn main() {
         .add_system(despawn_disconnected_clients)
         .insert_non_send_resource(FrameProcessor::new(input, width, height))
         .add_system(update_screen)
-        .insert_resource(StartTime { time: Instant::now(), tick: 0 })
         .insert_resource(ResourcePackHash(hex::encode(resource_pack_hash)))
+        .insert_resource(LocalURL(local_url.to_owned()))
         .run();
 }
 
 #[derive(Resource)]
-struct StartTime {
-    time: Instant,
-    tick: i64,
-}
+struct ResourcePackHash(String);
 
 #[derive(Resource)]
-struct ResourcePackHash(String);
+struct LocalURL(String);
 
 fn setup(mut commands: Commands, server: Res<Server>, processor: NonSend<FrameProcessor>) {
     let mut instance = server.new_instance(DimensionId::default());
@@ -122,10 +119,8 @@ fn init_clients(
     mut clients: Query<(Entity, &UniqueId, &mut Client, &mut GameMode, &Ip), Added<Client>>,
     instances: Query<Entity, With<Instance>>,
     mut commands: Commands,
-    mut start_time: ResMut<StartTime>,
-    server: Res<Server>,
-    mut processor: NonSendMut<FrameProcessor>,
     rph: Res<ResourcePackHash>,
+    local_url: Res<LocalURL>
 ) {
     for (entity, uuid, mut client, mut game_mode, ip) in &mut clients {
         *game_mode = GameMode::Creative;
@@ -133,8 +128,7 @@ fn init_clients(
         info!("{}", ip.0.to_string());
 
         client.send_message("Welcome to MCVideo V3!");
-
-        client.set_resource_pack(&format!("http://{}:25566", ip.0), &rph.0, true, None);
+        client.set_resource_pack(&format!("http://{}:25566", local_url.0), &rph.0, true, None);
 
         let mut brand = Vec::new();
         "MCVideo".encode(&mut brand).unwrap();
@@ -152,17 +146,27 @@ fn init_clients(
 fn on_resource_pack_status(
     mut clients: Query<&mut Client>,
     mut events: EventReader<ResourcePackStatusChange>,
-    mut start_time: ResMut<StartTime>,
     mut processor: NonSendMut<FrameProcessor>,
     server: Res<Server>,
 ) {
     for event in events.iter() {
-        let Ok(mut client) = clients.get(event.client) else { continue; };
+        let Ok(mut client) = clients.get_mut(event.client) else { continue; };
 
         if let event::ResourcePackStatus::Loaded = event.status {
-            processor.start();
-            // client.play_sound(Sound::, valence::protocol::types::SoundCategory::Master, (0., 64., 0.), 100., 1.);
-            *start_time = StartTime { time: Instant::now(), tick: server.current_tick() };
+            info!("Client's resource pack loaded, starting video...");
+            if processor.start() {
+                client.write_packet(&PlaySoundS2c {
+                    id: SoundId::Direct {
+                        id: Ident::new("audio:audio").unwrap(),
+                        range: Some(0.)
+                    },
+                    category: SoundCategory::Master,
+                    position: [0, 64, 0],
+                    volume: 100.,
+                    pitch: 1.,
+                    seed: 0,
+                });
+            }
         }
     }
 }
@@ -170,10 +174,9 @@ fn on_resource_pack_status(
 fn update_screen(
     mut processor: NonSendMut<FrameProcessor>,
     mut clients: Query<&mut Client>,
-    server: Res<Server>,
-    start_time: Res<StartTime>
+    server: Res<Server>
 ) {
-    if clients.is_empty() { return; }
+    if clients.is_empty() || processor.paused { return; }
 
     let start = Instant::now();
     if let Some(frame) = processor.next() {

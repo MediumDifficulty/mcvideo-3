@@ -15,17 +15,26 @@ pub struct FrameProcessor {
     pub width: u32,
     pub height: u32,
     start_time: Instant,
+    started: bool,
+    pub paused: bool,
 }
 
 impl FrameProcessor {
     pub fn new(input: Input, width: u32, height: u32) -> Self {
         let extractor = FrameExtractor::new(input, width, height);
 
-        Self { extractor, width, height, start_time: Instant::now() }
+        Self { extractor, width, height, start_time: Instant::now(), paused: true, started: false }
     }
 
-    pub fn start(&mut self) {
-        self.start_time = Instant::now();
+    pub fn start(&mut self) -> bool {
+        let started = !self.started;
+        if !self.started {
+            self.start_time = Instant::now();
+            self.started = true;
+        }
+        self.paused = false;
+
+        started
     }
 }
 

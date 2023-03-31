@@ -1,5 +1,6 @@
 use std::{fs::{File, self}, path::Path, io::Write};
 
+use log::info;
 use zip::{ZipWriter, write::FileOptions, result::ZipResult};
 
 pub fn create(audio: &[u8]) -> ZipResult<Vec<u8>> {
@@ -21,6 +22,8 @@ pub fn create(audio: &[u8]) -> ZipResult<Vec<u8>> {
     zip.write_all(audio)?;
 
     zip.finish()?;
+
+    info!("Created resource pack");
 
     let bytes = fs::read(path).unwrap();
     fs::remove_file(path).unwrap();
