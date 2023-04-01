@@ -33,7 +33,7 @@ pub fn create(audio: &[Vec<u8>]) -> ZipResult<Vec<u8>> {
     info!("Created resource pack");
 
     let bytes = fs::read(path).unwrap();
-    // fs::remove_file(path).unwrap();
+    fs::remove_file(path).unwrap();
 
     Ok(bytes)
 }

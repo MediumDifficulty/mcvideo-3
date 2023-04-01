@@ -11,7 +11,19 @@ use ffmpeg::format;
 use log::info;
 use processor::FrameProcessor;
 use tokio::runtime::Runtime;
-use valence::{prelude::{*, event::ChatMessage}, entity::{player::PlayerBundle, glow_item_frame::GlowItemFrameBundle, item_frame, ObjectData}, protocol::{Encode, packet::s2c::play::{MapUpdateS2c, map_update::Data, PlaySoundS2c, play_sound::SoundId}, var_int::VarInt, types::SoundCategory}, packet::WritePacket};
+use valence::entity::{ObjectData, item_frame};
+use valence::entity::player::PlayerEntityBundle;
+use valence::packet::WritePacket;
+use valence::prelude::event::ChatMessage;
+use valence::protocol::Encode;
+use valence::protocol::packet::s2c::play::{PlaySoundS2c, MapUpdateS2c};
+use valence::protocol::packet::s2c::play::map_update::Data;
+use valence::protocol::packet::s2c::play::play_sound::SoundId;
+use valence::protocol::types::SoundCategory;
+use valence::protocol::var_int::VarInt;
+use valence::prelude::*;
+use valence::entity::glow_item_frame::GlowItemFrameEntityBundle;
+use valence::client::default_event_handler;
 
 extern crate ffmpeg_next as ffmpeg;
 
@@ -61,8 +73,14 @@ fn main() {
 #[derive(Resource)]
 struct LocalURL(String);
 
-fn setup(mut commands: Commands, server: Res<Server>, processor: NonSend<FrameProcessor>) {
-    let mut instance = server.new_instance(DimensionId::default());
+fn setup(
+    mut commands: Commands,
+    server: Res<Server>,
+    dimensions: Query<&DimensionType>,
+    biomes: Query<&Biome>,
+    processor: NonSend<FrameProcessor>,
+) {
+    let mut instance = Instance::new(Ident::new("overworld").unwrap().to_string_ident(), &dimensions, &biomes, &server);
 
     let width = processor.width as i32;
     let height = processor.height as i32;
@@ -95,7 +113,7 @@ fn setup(mut commands: Commands, server: Res<Server>, processor: NonSend<FramePr
             let mut nbt = Compound::new();
             nbt.insert("map", z*width_maps + x);
 
-            commands.spawn(GlowItemFrameBundle {
+            commands.spawn(GlowItemFrameEntityBundle {
                 location: Location(instance_id),
                 position: Position(DVec3::new(x as f64, 64., z as f64)),
                 item_frame_item_stack: item_frame::ItemStack(ItemStack::new(ItemKind::FilledMap, 1, Some(nbt))),
@@ -124,7 +142,7 @@ fn init_clients(
         "MCVideo".encode(&mut brand).unwrap();
         client.send_custom_payload( Ident::new("minecraft:brand").unwrap().as_str_ident(), &brand);
 
-        commands.entity(entity).insert(PlayerBundle {
+        commands.entity(entity).insert(PlayerEntityBundle {
             location: Location(instances.single()),
             position: Position(DVec3::new(0., 64., 0.)),
             uuid: *uuid,
