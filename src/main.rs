@@ -1,11 +1,11 @@
 mod extractor;
 mod processor;
 mod map_colours;
-mod nearest_colour;
 mod resource_pack;
 mod http_server;
 
 use std::env;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ffmpeg::format;
 use log::info;
@@ -136,7 +136,13 @@ fn init_clients(
         *game_mode = GameMode::Creative;
 
         client.send_message("Welcome to MCVideo V3!");
-        client.set_resource_pack(&format!("http://{}:25566", local_url.0), "", true, None);
+        client.set_resource_pack(&format!(
+            "http://{}:25566#{}",
+            
+            // Hacky way of forcing the client to clear the resource pack cache
+            // https://bugs.mojang.com/browse/MC-164316
+            local_url.0, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 100000
+        ), "", true, None);
 
         let mut brand = Vec::new();
         "MCVideo".encode(&mut brand).unwrap();
@@ -184,7 +190,7 @@ fn update_screen(
             }
         }
     } else {
-        info!("Video finished playing");
+        // info!("Video finished playing");
         // process::exit(0);
     }
 
