@@ -17,13 +17,24 @@ pub struct FrameProcessor {
     start_time: Instant,
     started: bool,
     pub paused: bool,
+    last_played_audio: Option<usize>,
+    audio_clip_length: usize,
 }
 
 impl FrameProcessor {
-    pub fn new(input: Input, width: u32, height: u32) -> Self {
+    pub fn new(input: Input, width: u32, height: u32, audio_clip_length: usize) -> Self {
         let extractor = FrameExtractor::new(input, width, height);
 
-        Self { extractor, width, height, start_time: Instant::now(), paused: true, started: false }
+        Self {
+            extractor,
+            width,
+            height,
+            start_time: Instant::now(),
+            paused: true,
+            started: false,
+            last_played_audio: None,
+            audio_clip_length,
+        }
     }
 
     pub fn start(&mut self) -> bool {
@@ -36,12 +47,32 @@ impl FrameProcessor {
 
         started
     }
+
+    pub fn should_play_audio(&mut self) -> (bool, usize) {
+        let Some(last_played_audio) = self.last_played_audio.as_mut() else {
+            self.last_played_audio = Some(0);
+            return (true, 0);
+        };
+
+        let playing_audio = self.start_time.elapsed().as_secs() as usize / self.audio_clip_length;
+
+        if playing_audio > *last_played_audio {
+            *last_played_audio = playing_audio;
+            return (true, playing_audio);
+        }
+
+        (false, 0)
+    }
 }
 
 impl Iterator for FrameProcessor {
-    type Item = Vec<Vec<u8>>;
+    type Item = Option<Vec<Vec<u8>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.extractor.frametime() > self.start_time.elapsed() + Duration::from_millis(50) {
+            return Some(None);
+        }
+
         // Find the closest map colour
         // let start_a = Instant::now();
         let map_colours = get_next_frame_for_time(&mut self.extractor, self.start_time.elapsed())
@@ -75,7 +106,7 @@ impl Iterator for FrameProcessor {
 
         // info!("Plotting onto maps took {}ms", start_b.elapsed().as_millis());
 
-        Some(maps)
+        Some(Some(maps))
     }
 }
 

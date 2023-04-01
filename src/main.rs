@@ -5,14 +5,13 @@ mod nearest_colour;
 mod resource_pack;
 mod http_server;
 
-use std::{env, time::Instant, process};
+use std::env;
 
 use ffmpeg::format;
 use log::info;
 use processor::FrameProcessor;
-use sha1::{Sha1, Digest};
 use tokio::runtime::Runtime;
-use valence::{prelude::{*, event::ResourcePackStatusChange}, entity::{player::PlayerBundle, glow_item_frame::GlowItemFrameBundle, item_frame, ObjectData}, protocol::{Encode, packet::s2c::play::{MapUpdateS2c, map_update::Data, PlaySoundS2c, play_sound::SoundId}, var_int::VarInt, types::SoundCategory}, packet::WritePacket};
+use valence::{prelude::{*, event::ChatMessage}, entity::{player::PlayerBundle, glow_item_frame::GlowItemFrameBundle, item_frame, ObjectData}, protocol::{Encode, packet::s2c::play::{MapUpdateS2c, map_update::Data, PlaySoundS2c, play_sound::SoundId}, var_int::VarInt, types::SoundCategory}, packet::WritePacket};
 
 extern crate ffmpeg_next as ffmpeg;
 
@@ -22,15 +21,17 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
 
+    let input = format::input(&args.get(1).expect("Cannot open video file")).expect("Unable to load video");
+    let width = args[2].parse::<u32>().unwrap();
+    let height = args[3].parse::<u32>().unwrap();
+    let local_url = args.get(4).unwrap();
+    let clip_length = args[5].parse::<usize>().unwrap();
+
     ffmpeg::init().expect("Could not initialise Ffmpeg runtime");
     info!("Initialised ffmpeg");
 
-    let pack = resource_pack::create(&extractor::extract_audio(args.get(1).unwrap())).unwrap();
+    let pack = resource_pack::create(&extractor::extract_audio(args.get(1).unwrap(), clip_length)).unwrap();
     info!("Created resource pack");
-
-    let mut hasher = Sha1::new();
-    hasher.update(pack.as_slice());
-    let resource_pack_hash = hasher.finalize().to_vec();
 
     // Spawn http server
     let rt = Runtime::new().unwrap();
@@ -38,10 +39,6 @@ fn main() {
         http_server::serve(pack.clone()).await;  
     });
 
-    let input = format::input(&args.get(1).expect("Cannot open video file")).expect("Unable to load video");
-    let width = args[2].parse::<u32>().unwrap();
-    let height = args[3].parse::<u32>().unwrap();
-    let local_url = args.get(4).unwrap();
 
     App::new()
         .add_plugin(ServerPlugin::new(())
@@ -51,19 +48,15 @@ fn main() {
         .add_system(init_clients)
         .add_systems((
             default_event_handler,
-            on_resource_pack_status
+            on_chat_message,
         ).in_schedule(EventLoopSchedule))
         .add_systems(PlayerList::default_systems())
         .add_system(despawn_disconnected_clients)
-        .insert_non_send_resource(FrameProcessor::new(input, width, height))
+        .insert_non_send_resource(FrameProcessor::new(input, width, height, clip_length))
         .add_system(update_screen)
-        .insert_resource(ResourcePackHash(hex::encode(resource_pack_hash)))
         .insert_resource(LocalURL(local_url.to_owned()))
         .run();
 }
-
-#[derive(Resource)]
-struct ResourcePackHash(String);
 
 #[derive(Resource)]
 struct LocalURL(String);
@@ -116,19 +109,16 @@ fn setup(mut commands: Commands, server: Res<Server>, processor: NonSend<FramePr
 }
 
 fn init_clients(
-    mut clients: Query<(Entity, &UniqueId, &mut Client, &mut GameMode, &Ip), Added<Client>>,
+    mut clients: Query<(Entity, &UniqueId, &mut Client, &mut GameMode), Added<Client>>,
     instances: Query<Entity, With<Instance>>,
     mut commands: Commands,
-    rph: Res<ResourcePackHash>,
     local_url: Res<LocalURL>
 ) {
-    for (entity, uuid, mut client, mut game_mode, ip) in &mut clients {
+    for (entity, uuid, mut client, mut game_mode) in &mut clients {
         *game_mode = GameMode::Creative;
 
-        info!("{}", ip.0.to_string());
-
         client.send_message("Welcome to MCVideo V3!");
-        client.set_resource_pack(&format!("http://{}:25566", local_url.0), &rph.0, true, None);
+        client.set_resource_pack(&format!("http://{}:25566", local_url.0), "", true, None);
 
         let mut brand = Vec::new();
         "MCVideo".encode(&mut brand).unwrap();
@@ -143,58 +133,36 @@ fn init_clients(
     }
 }
 
-fn on_resource_pack_status(
-    mut clients: Query<&mut Client>,
-    mut events: EventReader<ResourcePackStatusChange>,
-    mut processor: NonSendMut<FrameProcessor>,
-    server: Res<Server>,
-) {
-    for event in events.iter() {
-        let Ok(mut client) = clients.get_mut(event.client) else { continue; };
-
-        if let event::ResourcePackStatus::Loaded = event.status {
-            info!("Client's resource pack loaded, starting video...");
-            if processor.start() {
-                client.write_packet(&PlaySoundS2c {
-                    id: SoundId::Direct {
-                        id: Ident::new("audio:audio").unwrap(),
-                        range: Some(0.)
-                    },
-                    category: SoundCategory::Master,
-                    position: [0, 64, 0],
-                    volume: 100.,
-                    pitch: 1.,
-                    seed: 0,
-                });
-            }
-        }
-    }
-}
-
 fn update_screen(
     mut processor: NonSendMut<FrameProcessor>,
     mut clients: Query<&mut Client>,
-    server: Res<Server>
 ) {
     if clients.is_empty() || processor.paused { return; }
 
-    let start = Instant::now();
     if let Some(frame) = processor.next() {
-        // info!("Processing took: {}ms", start.elapsed().as_millis());
-        for mut client in clients.iter_mut() {
-            for (i, map_data) in frame.iter().enumerate() {
-                client.write_packet(&MapUpdateS2c {
-                    scale: 0,
-                    icons: None,
-                    locked: false,
-                    map_id: VarInt(i as i32),
-                    data: Some(Data {
-                        columns: 128,
-                        rows: 128,
-                        position: [0, 0],
-                        data: map_data
-                    })
-                });
+        if let Some(f) = frame {
+            for mut client in clients.iter_mut() {
+                for (i, map_data) in f.iter().enumerate() {
+                    client.write_packet(&MapUpdateS2c {
+                        scale: 0,
+                        icons: None,
+                        locked: false,
+                        map_id: VarInt(i as i32),
+                        data: Some(Data {
+                            columns: 128,
+                            rows: 128,
+                            position: [0, 0],
+                            data: map_data
+                        })
+                    });
+                }
+            }
+        }
+
+        let (should_play, index) = processor.should_play_audio();
+        if should_play {
+            for mut client in clients.iter_mut() {
+                play_clip_sound(&mut client, index);
             }
         }
     } else {
@@ -203,4 +171,40 @@ fn update_screen(
     }
 
     // info!("update: {}ms\tct: {}\ttps: {}\tfps: {}", start.elapsed().as_millis(), server.current_tick(), server.tps(), (server.current_tick() - start_time.tick) as f32 / start_time.time.elapsed().as_secs_f32());
+}
+
+fn on_chat_message(
+    mut events: EventReader<ChatMessage>,
+    mut clients: Query<&mut Client>,
+    mut processor: NonSendMut<FrameProcessor>,
+) {
+    for event in events.iter() {
+        let Ok(mut client) = clients.get_mut(event.client) else { continue; };
+
+        if &*event.message == "!play" {
+            if processor.should_play_audio().0 {
+                play_clip_sound(&mut client, 0);
+            }
+
+            processor.start();
+
+            client.send_message("Started playing video");
+        }
+    }
+}
+
+fn play_clip_sound(client: &mut Client, clip_index: usize) {
+    client.write_packet(&PlaySoundS2c {
+        id: SoundId::Direct {
+            id: Ident::new(format!("audio:{}", clip_index)).unwrap(),
+            range: Some(0.)
+        },
+        category: SoundCategory::Master,
+        position: [0, 64, 0],
+        volume: 100.,
+        pitch: 1.,
+        seed: 0,
+    });
+
+    info!("Played audio clip {clip_index}");
 }

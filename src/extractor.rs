@@ -1,4 +1,4 @@
-use std::{time::{Instant, Duration}, process::Command, fs};
+use std::{time::Duration, process::Command, fs};
 
 use ffmpeg::{format::{context::Input, Pixel}, media::Type, software::scaling, frame::Video, decoder};
 use valence::util::{vec3, Vec3};
@@ -34,6 +34,10 @@ impl FrameExtractor {
         
         Self { input, decoder, scaler, video_stream_index, framerate, index: 0 }
     }
+
+    pub fn frametime(&self) -> Duration {
+        Duration::from_secs_f32(self.index as f32 * (1. / self.framerate))
+    }
 }
 
 impl Iterator for FrameExtractor {
@@ -42,7 +46,7 @@ impl Iterator for FrameExtractor {
     fn next(&mut self) -> Option<Self::Item> {
         let mut decoded = Video::empty();
 
-        let frame_time = Duration::from_secs_f32(self.index as f32 * (1. / self.framerate));
+        let frame_time = self.frametime();
         self.index += 1;
 
         if self.decoder.receive_frame(&mut decoded).is_ok() {
@@ -78,25 +82,40 @@ fn bytes_f32(bytes: &[u8]) -> Vec<Vec3> {
         .collect::<Vec<Vec3>>()
 }
 
-pub fn extract_audio(filename: &str) -> Vec<u8> {
+pub fn extract_audio(filename: &str, clip_length: usize) -> Vec<Vec<u8>> {
     // Extract audio to ogg
     fs::create_dir_all("temp").unwrap();
 
     let mut command = Command::new("ffmpeg");
 
     command
-        .arg("-i")
-        .arg(filename)
-        .arg("-vn")
-        .arg("-acodec")
-        .arg("libvorbis")
-        .arg("-y")
-        .arg("temp/audio.ogg");
+        .args([
+            "-i", filename,
+            "-vn",
+            "-acodec","libvorbis",
+            "-y",
+            "-f", "segment",
+            "-reset_timestamps", "1",
+            "-segment_time", clip_length.to_string().as_str(),
+            "temp/%d.ogg"
+        ]);
 
     command.output().unwrap();
+    
+    let mut audio = Vec::new();
+    fs::read_dir("temp").unwrap()
+        .map(|file| {
+            let path = file.unwrap().path();
+            (path.file_stem().unwrap().to_string_lossy().to_string().parse::<usize>().unwrap(), path)
+        }).for_each(|e| audio.push(e));
 
-    let audio = fs::read("temp/audio.ogg");
+    audio.sort_by(|a, b| a.0.cmp(&b.0));
+    
+    let files = audio.iter()
+        .map(|(_, path)| fs::read(path).unwrap().to_vec())
+        .collect::<Vec<Vec<u8>>>();
+
     fs::remove_dir_all("temp").unwrap();
 
-    audio.unwrap()
+    files
 }
