@@ -6,9 +6,11 @@ use ffmpeg::format::context::Input;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use valence::{glam::uvec2, prelude::Vec3};
 
-use crate::{extractor::FrameExtractor, map_colours::MAP_COLOURS};
+use crate::{extractor::FrameExtractor, map_colours::MAP_COLOURS, util::Colour};
 
 const BLACK_ID: u8 = 119;
+
+static BAKED_MAP_COLOURS: &[u8] = include_bytes!("assets/closest_colours.dat");
 
 pub struct FrameProcessor {
     extractor: FrameExtractor,
@@ -77,12 +79,13 @@ impl Iterator for FrameProcessor {
         // let start_a = Instant::now();
         let map_colours = get_next_frame_for_time(&mut self.extractor, self.start_time.elapsed())
             .map(|raw_frame| raw_frame.par_iter()
-                .map(|pixel| MAP_COLOURS.iter().enumerate()
-                    .filter(|e| e.0 > 3)
-                    .min_by(|&a, &b| a.1.distance_squared(*pixel).total_cmp(&b.1.distance_squared(*pixel)))
-                        .unwrap()
-                        .0 as u8
-                )
+                .map(|pixel| BAKED_MAP_COLOURS[pixel.as_usize()])
+                // .map(|pixel| MAP_COLOURS.iter().enumerate()
+                //     .filter(|e| e.0 > 3)
+                //     .min_by(|&a, &b| a.1.distance_squared(*pixel).total_cmp(&b.1.distance_squared(*pixel)))
+                //         .unwrap()
+                //         .0 as u8
+                // )
                 .collect::<Vec<u8>>()
             )?;
         // info!("finding closest colour took {}ms", start_a.elapsed().as_millis());
@@ -110,7 +113,7 @@ impl Iterator for FrameProcessor {
     }
 }
 
-fn get_next_frame_for_time(extractor: &mut FrameExtractor, elapsed_time: Duration) -> Option<Vec<Vec3>> {
+fn get_next_frame_for_time(extractor: &mut FrameExtractor, elapsed_time: Duration) -> Option<Vec<Colour>> {
     let (mut frame, mut frame_time) = extractor.next()?;
 
     while frame_time < elapsed_time {

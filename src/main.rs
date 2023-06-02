@@ -3,6 +3,7 @@ mod processor;
 mod map_colours;
 mod resource_pack;
 mod http_server;
+pub mod util;
 
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};

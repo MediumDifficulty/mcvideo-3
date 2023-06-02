@@ -3,6 +3,8 @@ use std::{time::Duration, process::Command, fs};
 use ffmpeg::{format::{context::Input, Pixel}, media::Type, software::scaling, frame::Video, decoder};
 use valence::{prelude::Vec3, glam::vec3};
 
+use crate::util::Colour;
+
 pub struct FrameExtractor {
     input: Input,
     decoder: decoder::Video,
@@ -41,7 +43,7 @@ impl FrameExtractor {
 }
 
 impl Iterator for FrameExtractor {
-    type Item = (Vec<Vec3>, Duration);
+    type Item = (Vec<Colour>, Duration);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut decoded = Video::empty();
@@ -53,7 +55,7 @@ impl Iterator for FrameExtractor {
             let mut rgb_frame = Video::empty();
             self.scaler.run(&decoded, &mut rgb_frame).unwrap();
 
-            return Some((bytes_f32(rgb_frame.data(0)), frame_time));
+            return Some((bytes_colours(rgb_frame.data(0)), frame_time));
         }
 
         loop {
@@ -69,17 +71,17 @@ impl Iterator for FrameExtractor {
                     let mut rgb_frame = Video::empty();
                     self.scaler.run(&decoded, &mut rgb_frame).unwrap();
 
-                    return Some((bytes_f32(rgb_frame.data(0)), frame_time));
+                    return Some((bytes_colours(rgb_frame.data(0)), frame_time));
                 }
             }
         }
     }
 }
 
-fn bytes_f32(bytes: &[u8]) -> Vec<Vec3> {
+fn bytes_colours(bytes: &[u8]) -> Vec<Colour> {
     bytes.chunks(3)
-        .map(|b| vec3(b[0] as f32, b[1] as f32, b[2] as f32) / 255.)
-        .collect::<Vec<Vec3>>()
+        .map(|b| Colour::from_slice(b))
+        .collect::<_>()
 }
 
 pub fn extract_audio(filename: &str, clip_length: usize) -> Vec<Vec<u8>> {
