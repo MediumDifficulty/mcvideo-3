@@ -1,7 +1,7 @@
 use std::{time::Duration, process::Command, fs};
 
 use ffmpeg::{format::{context::Input, Pixel}, media::Type, software::scaling, frame::Video, decoder};
-use valence::util::{vec3, Vec3};
+use valence::{prelude::Vec3, glam::vec3};
 
 pub struct FrameExtractor {
     input: Input,

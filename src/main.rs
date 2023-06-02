@@ -11,19 +11,17 @@ use ffmpeg::format;
 use log::info;
 use processor::FrameProcessor;
 use tokio::runtime::Runtime;
+use valence::client::chat::ChatMessageEvent;
 use valence::entity::{ObjectData, item_frame};
 use valence::entity::player::PlayerEntityBundle;
-use valence::packet::WritePacket;
-use valence::prelude::event::ChatMessage;
+use valence::glam::ivec3;
 use valence::protocol::Encode;
-use valence::protocol::packet::s2c::play::{PlaySoundS2c, MapUpdateS2c};
-use valence::protocol::packet::s2c::play::map_update::Data;
-use valence::protocol::packet::s2c::play::play_sound::SoundId;
-use valence::protocol::types::SoundCategory;
+use valence::protocol::encode::WritePacket;
+use valence::protocol::packet::map::{MapUpdateS2c, self};
+use valence::protocol::packet::sound::{PlaySoundS2c, SoundId, SoundCategory};
 use valence::protocol::var_int::VarInt;
 use valence::prelude::*;
 use valence::entity::glow_item_frame::GlowItemFrameEntityBundle;
-use valence::client::default_event_handler;
 
 extern crate ffmpeg_next as ffmpeg;
 
@@ -53,16 +51,10 @@ fn main() {
 
 
     App::new()
-        .add_plugin(ServerPlugin::new(())
-            .with_max_connections(10)
-            .with_tick_rate(30))
+        .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
         .add_system(init_clients)
-        .add_systems((
-            default_event_handler,
-            on_chat_message,
-        ).in_schedule(EventLoopSchedule))
-        .add_systems(PlayerList::default_systems())
+        .add_system(on_chat_message)
         .add_system(despawn_disconnected_clients)
         .insert_non_send_resource(FrameProcessor::new(input, width, height, clip_length))
         .add_system(update_screen)
@@ -172,7 +164,7 @@ fn update_screen(
                         icons: None,
                         locked: false,
                         map_id: VarInt(i as i32),
-                        data: Some(Data {
+                        data: Some(map::Data {
                             columns: 128,
                             rows: 128,
                             position: [0, 0],
@@ -198,7 +190,7 @@ fn update_screen(
 }
 
 fn on_chat_message(
-    mut events: EventReader<ChatMessage>,
+    mut events: EventReader<ChatMessageEvent>,
     mut clients: Query<&mut Client>,
     mut processor: NonSendMut<FrameProcessor>,
 ) {
@@ -224,7 +216,7 @@ fn play_clip_sound(client: &mut Client, clip_index: usize) {
             range: Some(0.)
         },
         category: SoundCategory::Master,
-        position: [0, 64, 0],
+        position: ivec3(0, 64, 0),
         volume: 100.,
         pitch: 1.,
         seed: 0,

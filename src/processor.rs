@@ -4,7 +4,7 @@ use std::time::{Instant, Duration};
 
 use ffmpeg::format::context::Input;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use valence::util::{uvec2, Vec3};
+use valence::{glam::uvec2, prelude::Vec3};
 
 use crate::{extractor::FrameExtractor, map_colours::MAP_COLOURS};
 

@@ -30,7 +30,7 @@ public class ExtractorClient implements ClientModInitializer {
         }
 
         StringBuilder mapColoursRs = new StringBuilder(String.format("""
-                use valence::util::{vec3, Vec3};
+                use valence::{prelude::Vec3, glam::vec3};
                 
                 #[allow(clippy::approx_constant)]
                 pub const MAP_COLOURS: [Vec3; %s] = [
