@@ -1,6 +1,5 @@
 mod extractor;
 mod processor;
-mod map_colours;
 mod resource_pack;
 mod http_server;
 pub mod util;

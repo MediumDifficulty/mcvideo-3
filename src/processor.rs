@@ -4,9 +4,9 @@ use std::time::{Instant, Duration};
 
 use ffmpeg::format::context::Input;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use valence::{glam::uvec2, prelude::Vec3};
+use valence::glam::uvec2;
 
-use crate::{extractor::FrameExtractor, map_colours::MAP_COLOURS, util::Colour};
+use crate::{extractor::FrameExtractor, util::Colour};
 
 const BLACK_ID: u8 = 119;
 

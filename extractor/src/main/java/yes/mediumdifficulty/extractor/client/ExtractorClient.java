@@ -8,6 +8,10 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.OpenOption;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,7 +37,7 @@ public class ExtractorClient implements ClientModInitializer {
             }
         }
 
-        char[] bakedValues = new char[256 * 256 * 256];
+        byte[] bakedValues = new byte[256 * 256 * 256];
         float[] multipliers = {0.71f, 0.86f, 1f, 0.53f};
 
         for (int r = 0; r < 256; r++) {
@@ -42,16 +46,16 @@ public class ExtractorClient implements ClientModInitializer {
                     float closestDist = Float.POSITIVE_INFINITY;
                     int closestIndex = 0;
 
-                    for (int colourIndex = 0; colourIndex < colours.size(); colourIndex++) {
+                    for (int colourIndex = 4; colourIndex < colours.size(); colourIndex++) {
                         int colour = colours.get(colourIndex);
                         for (int multiplierIndex = 0; multiplierIndex < multipliers.length; multiplierIndex++) {
                             float multiplier = multipliers[multiplierIndex];
 
-                            float red = (float)(colour >>> 16) * multiplier;
+                            float red = (float)((colour >>> 16) & 255) * multiplier;
                             float green = (float)((colour >>> 8) & 255) * multiplier;
                             float blue = (float)(colour & 255) * multiplier;
 
-                            float dist = ((float)r - red) * ((float)r - red) + ((float)g - green) * ((float)g - green) + ((float)b - blue) * ((float)b - blue);
+                            float dist = ((float)r - red)*((float)r - red) + ((float)g - green)*((float)g - green) + ((float)b - blue)*((float)b - blue);
                             if (dist < closestDist) {
                                 closestDist = dist;
                                 closestIndex = colourIndex * 4 + multiplierIndex;
@@ -59,7 +63,7 @@ public class ExtractorClient implements ClientModInitializer {
                         }
                     }
 
-                    bakedValues[r << 16 | g << 8 | b] = (char)closestIndex;
+                    bakedValues[r << 16 | g << 8 | b] = (byte)closestIndex;
                 }
             }
         }
@@ -73,9 +77,7 @@ public class ExtractorClient implements ClientModInitializer {
         }
 
         try {
-            FileWriter writer = new FileWriter(bakedFile, false);
-            writer.write(bakedValues);
-            writer.close();
+            Files.write(Paths.get(bakedFilePath), bakedValues, StandardOpenOption.TRUNCATE_EXISTING);
             System.out.println("Wrote to file");
         } catch (IOException e) {
             throw new RuntimeException(e);
