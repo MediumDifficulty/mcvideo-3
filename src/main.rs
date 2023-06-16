@@ -3,15 +3,17 @@ mod processor;
 mod resource_pack;
 mod http_server;
 pub mod util;
+pub mod command;
 
-use std::env;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process;
+use std::time::{SystemTime, UNIX_EPOCH, Instant};
 
+use clap::Parser;
 use ffmpeg::format;
-use log::info;
+use log::{info, debug};
 use processor::FrameProcessor;
 use tokio::runtime::Runtime;
-use valence::client::chat::ChatMessageEvent;
+use valence::client::message::{SendMessage, ChatMessageEvent};
 use valence::entity::{ObjectData, item_frame};
 use valence::entity::player::PlayerEntityBundle;
 use valence::glam::ivec3;
@@ -23,24 +25,26 @@ use valence::protocol::var_int::VarInt;
 use valence::prelude::*;
 use valence::entity::glow_item_frame::GlowItemFrameEntityBundle;
 
+use crate::command::Args;
+
 extern crate ffmpeg_next as ffmpeg;
 
 fn main() {
     env_logger::init();
     info!("Staring...");
 
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
 
-    let input = format::input(&args.get(1).expect("Cannot open video file")).expect("Unable to load video");
-    let width = args[2].parse::<u32>().unwrap();
-    let height = args[3].parse::<u32>().unwrap();
-    let local_url = args.get(4).unwrap();
-    let clip_length = args[5].parse::<usize>().unwrap();
+    let input = format::input(&args.input).expect("Unable to load video");
+    let width = args.width;
+    let height = args.height;
+    let local_url = args.local_url;
+    let clip_length = args.clip_length;
 
     ffmpeg::init().expect("Could not initialise Ffmpeg runtime");
     info!("Initialised ffmpeg");
 
-    let pack = resource_pack::create(&extractor::extract_audio(args.get(1).unwrap(), clip_length)).unwrap();
+    let pack = resource_pack::create(&extractor::extract_audio(&args.input, clip_length)).unwrap();
     info!("Created resource pack");
 
     // Spawn http server
@@ -58,7 +62,7 @@ fn main() {
         .add_system(despawn_disconnected_clients)
         .insert_non_send_resource(FrameProcessor::new(input, width, height, clip_length))
         .add_system(update_screen)
-        .insert_resource(LocalURL(local_url.to_owned()))
+        .insert_resource(LocalURL(local_url))
         .run();
 }
 
@@ -68,8 +72,8 @@ struct LocalURL(String);
 fn setup(
     mut commands: Commands,
     server: Res<Server>,
-    dimensions: Query<&DimensionType>,
-    biomes: Query<&Biome>,
+    dimensions: ResMut<DimensionTypeRegistry>,
+    biomes: ResMut<BiomeRegistry>,
     processor: NonSend<FrameProcessor>,
 ) {
     let mut instance = Instance::new(Ident::new("overworld").unwrap().to_string_ident(), &dimensions, &biomes, &server);
@@ -127,7 +131,7 @@ fn init_clients(
     for (entity, uuid, mut client, mut game_mode) in &mut clients {
         *game_mode = GameMode::Creative;
 
-        client.send_message("Welcome to MCVideo V3!");
+        client.send_chat_message("Welcome to MCVideo V3!");
         client.set_resource_pack(&format!(
             "http://{}:25566#{}",
             
@@ -154,24 +158,25 @@ fn update_screen(
     mut clients: Query<&mut Client>,
 ) {
     if clients.is_empty() || processor.paused { return; }
+    
+    let start_time = Instant::now();
+    debug!("---");
 
-    if let Some(frame) = processor.next() {
-        if let Some(f) = frame {
-            for mut client in clients.iter_mut() {
-                for (i, map_data) in f.iter().enumerate() {
-                    client.write_packet(&MapUpdateS2c {
-                        scale: 0,
-                        icons: None,
-                        locked: false,
-                        map_id: VarInt(i as i32),
-                        data: Some(map::Data {
-                            columns: 128,
-                            rows: 128,
-                            position: [0, 0],
-                            data: map_data
-                        })
-                    });
-                }
+    if let Some(Some(frame)) = processor.next() {
+        for mut client in clients.iter_mut() {
+            for (i, map_data) in frame.iter().enumerate() {
+                client.write_packet(&MapUpdateS2c {
+                    scale: 0,
+                    icons: None,
+                    locked: false,
+                    map_id: VarInt(i as i32),
+                    data: Some(map::Data {
+                        columns: 128,
+                        rows: 128,
+                        position: [0, 0],
+                        data: map_data
+                    })
+                });
             }
         }
 
@@ -182,11 +187,10 @@ fn update_screen(
             }
         }
     } else {
-        // info!("Video finished playing");
-        // process::exit(0);
+        info!("Video finished playing");
+        process::exit(0);
     }
-
-    // info!("update: {}ms\tct: {}\ttps: {}\tfps: {}", start.elapsed().as_millis(), server.current_tick(), server.tps(), (server.current_tick() - start_time.tick) as f32 / start_time.time.elapsed().as_secs_f32());
+    debug!("Updated screen in {}ms", start_time.elapsed().as_millis());
 }
 
 fn on_chat_message(
@@ -204,7 +208,7 @@ fn on_chat_message(
 
             processor.start();
 
-            client.send_message("Started playing video");
+            client.send_chat_message("Started playing video");
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::{time::Duration, process::Command, fs};
 
-use ffmpeg::{format::{context::Input, Pixel}, media::Type, software::scaling, frame::Video, decoder};
+use ffmpeg::{format::{context::Input, Pixel}, media::Type, software::scaling, frame::Video, decoder, threading};
 
 use crate::util::Colour;
 
@@ -19,8 +19,8 @@ impl FrameExtractor {
         let video_stream_index = video.index();
         
         let context_decoder = ffmpeg::codec::context::Context::from_parameters(video.parameters()).unwrap();
-        let decoder = context_decoder.decoder().video().unwrap();
-    
+        let mut decoder = context_decoder.decoder().video().unwrap();
+
         let scaler = scaling::Context::get(
             decoder.format(),
             decoder.width(),
@@ -32,7 +32,12 @@ impl FrameExtractor {
         ).unwrap();
         let framerate = video.avg_frame_rate();
         let framerate = framerate.0 as f32 / framerate.1 as f32;
-        
+
+        decoder.set_threading(threading::Config {
+            count: 12,
+            kind: threading::Type::Slice,
+        });
+
         Self { input, decoder, scaler, video_stream_index, framerate, index: 0 }
     }
 

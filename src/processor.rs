@@ -3,6 +3,7 @@
 use std::time::{Instant, Duration};
 
 use ffmpeg::format::context::Input;
+use log::debug;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use valence::glam::uvec2;
 
@@ -11,6 +12,8 @@ use crate::{extractor::FrameExtractor, util::Colour};
 const BLACK_ID: u8 = 119;
 
 static BAKED_MAP_COLOURS: &[u8] = include_bytes!("assets/closest_colours.dat");
+
+pub type MapFrame = [u8; 16384];
 
 pub struct FrameProcessor {
     extractor: FrameExtractor,
@@ -68,15 +71,17 @@ impl FrameProcessor {
 }
 
 impl Iterator for FrameProcessor {
-    type Item = Option<Vec<Vec<u8>>>;
+    type Item = Option<Vec<MapFrame>>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let start_time = Instant::now();
+
         if self.extractor.frametime() > self.start_time.elapsed() + Duration::from_millis(50) {
             return Some(None);
         }
 
         // Find the closest map colour
-        // let start_a = Instant::now();
+        let start_a = Instant::now();
         let map_colours = get_next_frame_for_time(&mut self.extractor, self.start_time.elapsed())
             .map(|raw_frame| raw_frame.par_iter()
                 .map(|pixel| BAKED_MAP_COLOURS[pixel.as_usize()])
@@ -88,14 +93,14 @@ impl Iterator for FrameProcessor {
                 // )
                 .collect::<Vec<u8>>()
             )?;
-        // info!("finding closest colour took {}ms", start_a.elapsed().as_millis());
+        debug!("finding closest colour took {}ms", start_a.elapsed().as_millis());
 
 
-        // let start_b = Instant::now();
+        let start_b = Instant::now();
         let width_maps = num_integer::div_ceil(self.width, 128);
         let height_maps = num_integer::div_ceil(self.height, 128);
 
-        let mut maps = vec![vec![BLACK_ID; 16384]; (width_maps * height_maps) as usize];
+        let mut maps = vec![[BLACK_ID; 16384]; (width_maps * height_maps) as usize];
         
         let offset = uvec2((width_maps * 128 - self.width) / 2, (height_maps * 128 - self.height) / 2);
 
@@ -107,18 +112,23 @@ impl Iterator for FrameProcessor {
             maps[(block_coords.y * width_maps + block_coords.x) as usize][(map_coords.y * 128 + map_coords.x) as usize] = colour;
         }
 
-        // info!("Plotting onto maps took {}ms", start_b.elapsed().as_millis());
+        debug!("Plotting onto maps took {}ms", start_b.elapsed().as_millis());
+
+        debug!("Processing took {}ms", start_time.elapsed().as_millis());
 
         Some(Some(maps))
     }
 }
 
 fn get_next_frame_for_time(extractor: &mut FrameExtractor, elapsed_time: Duration) -> Option<Vec<Colour>> {
+    let start_time = Instant::now();
     let (mut frame, mut frame_time) = extractor.next()?;
 
     while frame_time < elapsed_time {
         (frame, frame_time) = extractor.next()?;
     }
+
+    debug!("Getting next frame took {}ms", start_time.elapsed().as_millis());
 
     Some(frame)
 }
